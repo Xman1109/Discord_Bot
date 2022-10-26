@@ -185,40 +185,7 @@ async def price(interaction: discord.Interaction, stockname: str):
 
 @tree.command(guild=discord.Object(id=guild_id), name="buy", description="Buy some shares")
 async def buy(interaction: discord.Interaction, name: str, amount: int):
-    name = name.lower()
-    amount = int(amount)
-    stocks = pd.read_csv(path+"data/prices.csv")
-    accounts = pd.read_csv(path+"data/accounts.csv")
-    inventories = pd.read_csv(path+"data/inventories.csv")
-    console_username = interaction.user.name + "#" + interaction.user.discriminator
-    user_id = interaction.user.id
-    for v, i in enumerate(stocks):
-        if name == i:
-            price = stocks[i][0]
-            for w, i in enumerate(accounts["UserID"]):
-                if user_id == i:
-                    balance = accounts["Balance"][w]
-                    if balance < price * amount:
-                        message = f'<@{user_id}>, You don\'t have enough money to buy this stock!'
-                    else:
-                        for v, i in enumerate(inventories["uid"]):
-                            if user_id == i:
-                                accounts["Balance"][w] -= price * amount
-                                inventories[name][v] += amount
-                                accounts.to_csv(
-                                    path+"data/accounts.csv", index=False)
-                                inventories.to_csv(
-                                    path+"data/inventories.csv", index=False)
-                                message = f'<@{user_id}>, You have successfully bought **{amount}** `{name}` for **{price * amount}₭**!'
-                                break
-                    break
-            else:
-                message = f'<@{user_id}>, You don\'t have an account!\nCreate an account by typing `/init`!'
-            break
-    else:
-        message = f'<@{user_id}>, Can\'t find this stock.'
-    print(f"@{console_username} tried to buy {amount} {name}.\nAnswer: {message}\n")
-    await interaction.response.send_message(message)
+    await interaction.response.send_message("This command is currently disabled.", ephemeral=True)
 
 
 @tree.command(guild=discord.Object(id=guild_id), name="sell", description="Sell some shares")
