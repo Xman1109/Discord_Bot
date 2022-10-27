@@ -1,12 +1,14 @@
 import os
 import discord
 import pandas as pd
+import math
+import winsound
 from discord import app_commands
 from dotenv import load_dotenv
 path = "G:/GitHub-Repos/Stockbot_PY/src/"
 base_balance = 1000
 base_Oil = 0
-message = ""
+message = "DEFAULT"
 
 load_dotenv()
 
@@ -24,8 +26,8 @@ class aclient(discord.Client):
             # guild specific: leave blank if global (global registration can take 1-24 hours)
             await tree.sync(guild=discord.Object(id=guild_id))
             self.synced = True
+        winsound.Beep(750, 150)
         print(f"I am {self.user}.")
-        # refresh_prices.start()
 
 
 client = aclient()
@@ -43,7 +45,16 @@ def checkIfUserIsAdmin(uid):
             return {1: df["auth_level"][v], 2: df["name"][v]}
 
 
+def recalculatePrice(resource):
+    price = pd.read_csv(path + "data/prices.csv")
+    price[resource][0] = math.floor(450*(price[resource][2]+1) ** (-0.245))
+    price.to_csv(path + "data/prices.csv", index=False)
+    print(price[resource][0], "help")
+    return price[resource][0]
+
 # * Slash commands
+
+
 @tree.command(guild=discord.Object(id=guild_id), name='joe', description='mama')
 async def slash2(interaction: discord.Interaction):
     await interaction.response.send_message("Joe Mama!")
@@ -163,6 +174,20 @@ async def bal(interaction: discord.Interaction, user: discord.User = None):
     await interaction.response.send_message(message)
 
 
+@tree.command(guild=discord.Object(id=guild_id), name="baltop", description="Displays the top 10 richest users.")
+async def baltop(interaction: discord.Interaction):
+    df = pd.read_csv(path+"data/accounts.csv")
+    df = df.sort_values(by="Balance", ascending=False)
+    df = df.reset_index(drop=True)
+    message = "```"
+    for i in range(10):
+        if i < len(df):
+            message += f"{i+1}. {df['Username'][i]}: {df['Balance'][i]}₭\n"
+    message += "```"
+    print(f"{interaction.user.name} checked the baltop.\nAnswer: \n{message}")
+    await interaction.response.send_message(message)
+
+
 @tree.command(guild=discord.Object(id=guild_id), name="price", description="Displays the price of a stock.")
 async def price(interaction: discord.Interaction, stockname: str):
     stockname = stockname.lower()
@@ -185,7 +210,47 @@ async def price(interaction: discord.Interaction, stockname: str):
 
 @tree.command(guild=discord.Object(id=guild_id), name="buy", description="Buy some shares")
 async def buy(interaction: discord.Interaction, name: str, amount: int):
-    await interaction.response.send_message("This command is currently disabled.", ephemeral=True)
+    name = name.lower()
+    amount = int(amount)
+    stocks = pd.read_csv(path+"data/prices.csv")
+    accounts = pd.read_csv(path+"data/accounts.csv")
+    inventories = pd.read_csv(path+"data/inventories.csv")
+    console_username = interaction.user.name + "#" + interaction.user.discriminator
+    user_id = interaction.user.id
+    for v, i in enumerate(stocks):
+        if name == i:
+            price = stocks[i][0]
+            for w, i in enumerate(accounts["UserID"]):
+                if user_id == i:
+                    balance = accounts["Balance"][w]
+                    if balance < price * amount:
+                        message = f'<@{user_id}>, You don\'t have enough money to buy this stock!'
+                    else:
+                        for v, i in enumerate(inventories["uid"]):
+                            if user_id == i:
+                                if stocks[name][2] <= amount:
+                                    message = f'<@{user_id}>, There is not enough {name}!'
+                                else:
+                                    stocks[name][2] -= amount
+                                    stocks.to_csv(
+                                        path+"data/prices.csv", index=False)
+                                    recalculatePrice(name)
+                                    inventories[name][v] += amount
+                                    inventories.to_csv(
+                                        path+"data/inventories.csv", index=False)
+                                    accounts["Balance"][w] -= price * amount
+                                    accounts.to_csv(
+                                        path+"data/accounts.csv", index=False)
+                                    message = f'<@{user_id}>, You have successfully bought **{amount}** **{name}** for **{price * amount}₭**!'
+                                    break
+                    break
+            else:
+                message = f'<@{user_id}>, You don\'t have an account!\nCreate an account by typing `/init`!'
+            break
+    else:
+        message = f'<@{user_id}>, Can\'t find this stock.'
+    print(f"@{console_username} tried to buy {amount} {name}.\nAnswer: {message}\n")
+    await interaction.response.send_message(message)
 
 
 @tree.command(guild=discord.Object(id=guild_id), name="sell", description="Sell some shares")
@@ -196,31 +261,36 @@ async def sell(interaction: discord.Interaction, name: str, amount: int):
     inventories = pd.read_csv(path+"data/inventories.csv")
     console_username = interaction.user.name + "#" + interaction.user.discriminator
     user_id = interaction.user.id
-
     for v, i in enumerate(stocks):
         if name == i:
-            price = stocks[i][0]
-            for w, i in enumerate(accounts["UserID"]):
-                if user_id == i:
-                    balance = accounts["Balance"][w]
-                    for v, i in enumerate(inventories["uid"]):
-                        if user_id == i:
-                            if inventories[name][v] < amount:
-                                message = f'<@{user_id}>, You don\'t have enough of this stock to sell!'
+            for v2, i2 in enumerate(accounts["UserID"]):
+                if user_id == i2:
+                    for v3, i3 in enumerate(inventories["uid"]):
+                        if user_id == i3:
+                            if inventories[name][v3] < amount:
+                                message = f'<@{user_id}>, You don\'t have enough {name} you can sell!'
                             else:
-                                accounts["Balance"][w] += price * amount * 0.99
-                                inventories[name][v] -= amount
-                                accounts.to_csv(
-                                    path+"data/accounts.csv", index=False)
+                                price = stocks[name][0]
+                                inventories[name][v3] -= amount
                                 inventories.to_csv(
                                     path+"data/inventories.csv", index=False)
-                                message = f'<@{user_id}>, You have successfully sold **{amount}** `{name}` for **{price * amount}₭**!'
+                                stocks[name][2] += amount
+                                stocks.to_csv(
+                                    path+"data/prices.csv", index=False)
+                                recalculatePrice(name)
+                                accounts["Balance"][v2] += int(
+                                    price * amount * 0.99)
+                                accounts.to_csv(
+                                    path+"data/accounts.csv", index=False)
+                                message = f'<@{user_id}>, You have successfully sold **{amount}** **{name}** for **{price * amount}₭**!'
                                 break
-                        break
                     break
             else:
                 message = f'<@{user_id}>, You don\'t have an account!\nCreate an account by typing `/init`!'
             break
+
+    else:
+        message = f'<@{user_id}>, Can\'t find {name}.'
 
     print(f"@{console_username} tried to sell some shares.\nAnswer: {message}\n")
     await interaction.response.send_message(message)
@@ -347,29 +417,25 @@ async def removeresource(interaction: discord.Interaction, resource: str):
 async def editaccount(interaction: discord.Interaction, user: discord.User, subject: str, amount: int) -> None:
     if checkIfUserIsAdmin(interaction.user.id)[1] == "owner" or checkIfUserIsAdmin(interaction.user.id)[1] == "admin":
         accounts = pd.read_csv(path+"data/accounts.csv")
+        console_username = interaction.user.name + "#" + interaction.user.discriminator
         if subject != "Balance":
             subject = subject.lower()
         # check if the subject exists
         for v, i in enumerate(accounts):
             if subject == i:
-                for v, i in enumerate(accounts["UserID"]):
-                    if i == user.id:
-                        accounts[subject][v] = amount
-                        accounts.to_csv(path+"data/accounts.csv",
-                                        header=True, index=None)
-                        message = f"Successfully edited {user.name}'s {subject} to {amount}."
-                        f = True
+                for w, j in enumerate(accounts["UserID"]):
+                    if j == user.id:
+                        accounts[subject][w] = amount
+                        accounts.to_csv(path+"data/accounts.csv", index=False)
+                        message = f'<@{interaction.user.id}>, You have successfully edited the account of <@{user.id}>!'
                         break
                 else:
-                    message = f"User not found."
-                    break
-            if f:
+                    message = f'<@{interaction.user.id}>, This user doesn\'t have an account!'
                 break
         else:
-            message = f"Subject {subject} not found."
-    else:
-        message = "You are not allowed to use this command."
-    print(f"@{interaction.user.name}#{interaction.user.discriminator} tried to edit {user.name}'s {subject}.\nAnswer: {message}\n")
+            message = f'<@{interaction.user.id}>, This subject doesn\'t exist!'
+
+    print(f"{console_username} tried to edit an account.\nAnswer: {message}\n")
     await interaction.response.send_message(message)
 
 
