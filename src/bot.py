@@ -1,3 +1,4 @@
+import asyncio
 import os
 import discord
 import pandas as pd
@@ -15,6 +16,9 @@ load_dotenv()
 guild_id = os.environ.get("DISCORD_GUILD_ID")
 
 
+# Always handle UserID's as strings
+
+
 class aclient(discord.Client):
     def __init__(self):
         super().__init__(intents=discord.Intents.default())
@@ -28,6 +32,7 @@ class aclient(discord.Client):
             self.synced = True
         winsound.Beep(750, 150)
         print(f"I am {self.user}.")
+        await production()
 
 
 client = aclient()
@@ -47,12 +52,28 @@ def checkIfUserIsAdmin(uid):
 
 def recalculatePrice(resource):
     price = pd.read_csv(path + "data/prices.csv")
-    price[resource][0] = math.floor(450*(price[resource][2]+1) ** (-0.245))
+    max_price = price[resource][3]
+    price[resource][0] = math.floor(
+        max_price*(price[resource][2]+1) ** (-0.245))
     price.to_csv(path + "data/prices.csv", index=False)
-    print(price[resource][0], "help")
     return price[resource][0]
 
+
+async def production():
+    while True:
+        price = pd.read_csv(path + "data/prices.csv")
+        for i in price.columns:
+            # TODO: If available resources are greater than 80% of max, then stop production
+            production = price[i][0]*price[i][0]/500
+            price[i][2] = int(int(price[i][2]) + production)
+            recalculatePrice(i)
+            print(
+                f"+{math.floor(production)} {i} produced, price is now at {price[i][0]}₭")
+        price.to_csv(path + "data/prices.csv", index=False)
+        await asyncio.sleep(3600)
+
 # * Slash commands
+# TODO: /daily
 
 
 @tree.command(guild=discord.Object(id=guild_id), name='joe', description='mama')
@@ -165,7 +186,7 @@ async def bal(interaction: discord.Interaction, user: discord.User = None):
     df = pd.read_csv(path+"data/accounts.csv")
     for v, i in enumerate(df["UserID"]):
         if i == user.id:
-            message = f'<@{user.id}> has **{df["Balance"][v]}₭**!'
+            message = f'<@{user.id}> has **{df["Balance"][v]:,}₭**!'
             break
     else:
         message = f'<@{user.id}> Does not have an account! Use `/init` to create one.'
@@ -182,7 +203,7 @@ async def baltop(interaction: discord.Interaction):
     message = "```"
     for i in range(10):
         if i < len(df):
-            message += f"{i+1}. {df['Username'][i]}: {df['Balance'][i]}₭\n"
+            message += f"{i+1}. {df['Username'][i]}: {df['Balance'][i]:,}₭\n"
     message += "```"
     print(f"{interaction.user.name} checked the baltop.\nAnswer: \n{message}")
     await interaction.response.send_message(message)
@@ -199,7 +220,7 @@ async def price(interaction: discord.Interaction, stockname: str):
             price = df[v][1]
             found = True
             message = f'The price of `{stockname}` is **{price}₭**!'
-            continue
+            break
     if found == False:
         message = f'<@{interaction.user.id}>, Can\'t find this stock.'
 
@@ -241,7 +262,7 @@ async def buy(interaction: discord.Interaction, name: str, amount: int):
                                     accounts["Balance"][w] -= price * amount
                                     accounts.to_csv(
                                         path+"data/accounts.csv", index=False)
-                                    message = f'<@{user_id}>, You have successfully bought **{amount}** **{name}** for **{price * amount}₭**!'
+                                    message = f'<@{user_id}>, You have successfully bought **{amount:,}** **{name}** for **{price * amount:,}₭**!'
                                     break
                     break
             else:
@@ -282,7 +303,7 @@ async def sell(interaction: discord.Interaction, name: str, amount: int):
                                     price * amount * 0.99)
                                 accounts.to_csv(
                                     path+"data/accounts.csv", index=False)
-                                message = f'<@{user_id}>, You have successfully sold **{amount}** **{name}** for **{price * amount}₭**!'
+                                message = f'<@{user_id}>, You have successfully sold **{amount:,}** **{name}** for **{price * amount:,}₭**!'
                                 break
                     break
             else:
@@ -337,7 +358,7 @@ async def pay(interaction: discord.Interaction, user: discord.User, amount: int)
                         accounts["Balance"][v] -= amount
                         accounts["Balance"][w] += amount
                         accounts.to_csv(path+"data/accounts.csv", index=False)
-                        message = f'<@{user_id}>, You have successfully paid **{amount}₭** to <@{user.id}>!'
+                        message = f'<@{user_id}>, You have successfully paid **{amount:,}₭** to <@{user.id}>!'
                         break
             break
     else:
@@ -346,28 +367,134 @@ async def pay(interaction: discord.Interaction, user: discord.User, amount: int)
     await interaction.response.send_message(message)
 
 
-@tree.command(guild=discord.Object(id=guild_id), name="addresource", description="ADMIN_ONLY - Add a resource.")
-async def addresource(interaction: discord.Interaction, resource: str, price: int):
-    if checkIfUserIsAdmin(interaction.user.id)[1] == "owner" or checkIfUserIsAdmin(interaction.user.id)[1] == "admin":
-        inventories = pd.read_csv(path+"data/inventories.csv")
-        prices = pd.read_csv(path+"data/prices.csv")
-        resource = resource.lower()
-        user_id = interaction.user.id
-        console_username = interaction.user.name + "#" + interaction.user.discriminator
-        # check if resource already exists, if not, create it
-        for v, i in enumerate(prices):
-            if resource == i:
-                message = f'<@{user_id}>, This resource already exists!'
+@tree.command(guild=discord.Object(id=guild_id), name="company", description="Create a company. or manage it.")
+async def company(interaction: discord.Interaction, action: str = "info", name: str = ""):
+    companies = pd.read_csv(path+"data/companies.csv")
+    # TODO: decode/encode production
+    # TODO: Calculate networth
+    if action == "info":   # Get info about a company
+        if name == "":
+            for v, i in enumerate(companies["ownerid"]):
+                if str(i) == str(interaction.user.id):
+                    name = companies["name"][v]
+                    break
+            else:
+                message = f'<@{interaction.user.id}>, You don\'t have a company!\nCreate one by typing `/company create <name>`'
+
+        for v, i in enumerate(companies["name"]):
+            if i == name:
+                employees = companies["employees"][v].split(";")
+                for v2, i2 in enumerate(employees):
+                    employees[v2] = f"<@{i2}>"
+                employees = ", ".join(employees)
+                message = f'**{name}**\nCEO: **{companies["owner"][v]}**\nNetworth: **₭**\nProduction: **CUMING SOON**\nEmployees: **{employees}**'
                 break
         else:
-            # add the resource with the price to the prices.csv
-            pd.concat([prices, pd.DataFrame({resource: [price]})], axis=1).to_csv(
-                path+"data/prices.csv", index=False)
-            # add the resource to the inventories.csv
-            pd.concat([inventories, pd.DataFrame({resource: [0]})], axis=1)
+            message = f'<@{interaction.user.id}>, Can\'t find this company.'
+
+    elif action == "create":   # Create a company
+        for v, i in enumerate(companies["name"]):
+            if i == name:
+                message = f'<@{interaction.user.id}>, This company already exists!'
+                break
+        else:
+            companies = pd.concat([companies, pd.DataFrame({"name": [name], "owner": [
+                                  interaction.user.name], "ownerid": [interaction.user.id]})])
+            companies.fillna("None", inplace=True, downcast="infer")
+            companies.to_csv(path+"data/companies.csv", index=False)
+            message = f'<@{interaction.user.id}>, You have successfully created a company called **{name}**!'
+
+    elif action == "hire":   # Hire an employee from the applicant list of the company
+        name = name.replace("<", "").replace(">", "").replace("@", "")
+        for v, i in enumerate(companies["name"]):
+            if i == name:
+                if companies["ownerid"][v] == interaction.user.id:
+                    applicants = companies["applicants"][v].split(";")
+                    for v2, i2 in enumerate(applicants):
+                        if i2 == str(name):
+                            applicants.pop(v2)
+                            employees = companies["employees"][v].split(";")
+                            employees.append(str(interaction.user.id))
+                            companies["employees"][v] = ";".join(employees)
+                            companies["applicants"][v] = ";".join(applicants)
+                            companies.to_csv(
+                                path+"data/companies.csv", index=False)
+                            message = f'<@{interaction.user.id}>, You have successfully been hired by **{name}**!'
+                            break
+                    else:
+                        message = f'<@{interaction.user.id}>, This user is not an applicant!'
+                        break
+                    break
+                else:
+                    message = f'<@{interaction.user.id}>, You are not the owner of this company!'
+                    break
+        else:
+            message = f'<@{interaction.user.id}>, Can\'t find this company.'
+
+    elif action == "fire":   # Fire an employee
+        name = name.replace("@", "").replace("<", "").replace(">", "")
+        for v, i in enumerate(companies["ownerid"]):
+            if i == interaction.user.id:
+                employees = str(companies["employees"][v]).split(";")
+                for w, j in enumerate(employees):
+                    if str(j) == name:
+                        employees.pop(w)
+                        companies["employees"][v] = ";".join(employees)
+                        companies.to_csv(
+                            path+"data/companies.csv", index=False)
+                        message = f'<@{interaction.user.id}>, You have successfully fired <@{name}>!'
+                        break
+                else:
+                    message = f'<@{interaction.user.id}>, This user is not an employee!'
+                break
+            else:
+                message = f'<@{interaction.user.id}>, You don\'t own a company!'
+
+    elif action == "apply":   # Apply for a job
+        for v, i in enumerate(companies["name"]):
+            if i == name:
+                # add the userid to the applicants list of the company
+                applicants = str(companies["applicants"][v]).split(";")
+                for w, j in enumerate(applicants):
+                    if str(j) == str(interaction.user.id):
+                        message = f'<@{interaction.user.id}>, You already applied for this job!'
+                        break
+                else:
+                    if companies["applicants"][v] == "None":
+                        companies["applicants"][v] = str(interaction.user.id)
+                    else:
+                        companies["applicants"][v] = str(companies["applicants"][v]) + \
+                            ";" + str(interaction.user.id)
+                    companies.to_csv(
+                        path+"data/companies.csv", index=False)
+                    message = f'<@{interaction.user.id}>, You have successfully applied for a job at **{name}**!\nPlease wait for the CEO to accept you, via the /company hire @{interaction.user.name} command.'
+
+    else:
+        message = f'<@{interaction.user.id}>, Invalid action!'
+
+    print(f"@{interaction.user.name}#{interaction.user.discriminator} tried to manage a company.\nAnswer: {message}\n")
+    await interaction.response.send_message(message)
+
+
+@tree.command(guild=discord.Object(id=guild_id), name="addresource", description="ADMIN_ONLY - Add a resource.")
+async def addresource(interaction: discord.Interaction, resource: str, starting_price: int, amount: int, max_price: int):
+    if checkIfUserIsAdmin(interaction.user.id)[1] == "owner" or checkIfUserIsAdmin(interaction.user.id)[1] == "admin":
+        console_username = interaction.user.name + "#" + interaction.user.discriminator
+        resource = resource.lower()
+        stocks = pd.read_csv(path+"data/prices.csv")
+        inventories = pd.read_csv(path+"data/inventories.csv")
+        for v, i in enumerate(stocks):
+            if resource == i:
+                message = f'<@{interaction.user.id}>, This resource already exists!'
+                break
+        else:
+            stocks[resource] = [starting_price, amount, amount, max_price]
+            stocks.to_csv(path+"data/prices.csv", index=False)
+            inventories[resource] = 0
             inventories.fillna(0, inplace=True, downcast="infer")
             inventories.to_csv(path+"data/inventories.csv", index=False)
-            message = f'<@{user_id}>, You have successfully added the resource `{resource}`!'
+            recalculatePrice(resource)
+            message = f'<@{interaction.user.id}>, You have successfully added **{resource}** to the market!'
     else:
         message = "You are not allowed to use this command."
     print(f"{console_username} tried to add a resource.\nAnswer: {message}\n")
