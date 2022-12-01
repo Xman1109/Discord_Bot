@@ -1,11 +1,15 @@
 import asyncio
+import math
 import os
+import warnings
+import winsound
+
 import discord
 import pandas as pd
-import math
-import winsound
 from discord import app_commands
 from dotenv import load_dotenv
+
+warnings.filterwarnings('ignore')
 path = "G:/GitHub-Repos/Stockbot_PY/src/"
 base_balance = 1000
 base_Oil = 0
@@ -17,6 +21,7 @@ guild_id = os.environ.get("DISCORD_GUILD_ID")
 
 
 # Always handle UserID's as strings
+# Always document your code
 
 
 class aclient(discord.Client):
@@ -368,11 +373,25 @@ async def pay(interaction: discord.Interaction, user: discord.User, amount: int)
 
 
 @tree.command(guild=discord.Object(id=guild_id), name="company", description="Create a company. or manage it.")
-async def company(interaction: discord.Interaction, action: str = "info", name: str = ""):
+async def company(interaction: discord.Interaction, action: str, name: str = "", user: discord.User = None):
     companies = pd.read_csv(path+"data/companies.csv")
+    private = False
     # TODO: decode/encode production
     # TODO: Calculate networth
-    if action == "info":   # Get info about a company
+    if action == "help":
+        message = """**Company Syntax**\n
+        `/company help` - Shows this message.
+        `/company create <name>` - Create a company.
+        `/company info` - Get info about your company.
+        `/company inv` - Get your company's inventory.
+        `/company pay <user> <amount>` - Pay someone from your company's balance.
+        `/company hire <user>` - Hire an applicant to work for your company.
+        `/company fire <user>` - Fire an employee from your company.
+        `/company apply <name>` - Apply to work for a company.
+        `/company leave` - Leave your current company.
+        `/company list` - List all companies."""
+
+    elif action == "info":   # Get info about a company
         if name == "":
             for v, i in enumerate(companies["ownerid"]):
                 if str(i) == str(interaction.user.id):
@@ -383,11 +402,16 @@ async def company(interaction: discord.Interaction, action: str = "info", name: 
 
         for v, i in enumerate(companies["name"]):
             if i == name:
-                employees = companies["employees"][v].split(";")
+                employees = str(companies["employees"][v]).split(";")
                 for v2, i2 in enumerate(employees):
                     employees[v2] = f"<@{i2}>"
                 employees = ", ".join(employees)
-                message = f'**{name}**\nCEO: **{companies["owner"][v]}**\nNetworth: **₭**\nProduction: **CUMING SOON**\nEmployees: **{employees}**'
+                applicants = str(companies["applicants"][v]).split(";")
+                if applicants[0] == "None":
+                    applicants = 0
+                else:
+                    applicants = len(applicants)
+                message = f'**{name}**\nCEO: **{companies["owner"][v]}**\nNetworth: **₭**\nProduction: **CUMING SOON**\nEmployees: **{employees}**\nApplicants: **{applicants}**'
                 break
         else:
             message = f'<@{interaction.user.id}>, Can\'t find this company.'
@@ -405,75 +429,151 @@ async def company(interaction: discord.Interaction, action: str = "info", name: 
             message = f'<@{interaction.user.id}>, You have successfully created a company called **{name}**!'
 
     elif action == "hire":   # Hire an employee from the applicant list of the company
-        name = name.replace("<", "").replace(">", "").replace("@", "")
-        for v, i in enumerate(companies["name"]):
-            if i == name:
-                if companies["ownerid"][v] == interaction.user.id:
-                    applicants = companies["applicants"][v].split(";")
+        for v, i in enumerate(companies["ownerid"]):
+            if str(i) == str(interaction.user.id):
+                # Check if user is already in a company
+                for v2, i2 in enumerate(companies["employees"]):
+                    if str(user.id) == str(i2):
+                        message = f'<@{interaction.user.id}>, This user is already in a company!'
+                        break
+                else:
+                    applicants = str(companies["applicants"][v]).split(";")
                     for v2, i2 in enumerate(applicants):
-                        if i2 == str(name):
-                            applicants.pop(v2)
-                            employees = companies["employees"][v].split(";")
-                            employees.append(str(interaction.user.id))
+                        if str(i2) == str(user.id):
+                            employees = str(
+                                companies["employees"][v]).split(";")
+                            employees.append(str(user.id))
                             companies["employees"][v] = ";".join(employees)
+                            applicants.pop(v2)
                             companies["applicants"][v] = ";".join(applicants)
+                            companies = companies.replace("", "None")
                             companies.to_csv(
                                 path+"data/companies.csv", index=False)
-                            message = f'<@{interaction.user.id}>, You have successfully been hired by **{name}**!'
+                            message = f'<@{interaction.user.id}>, You have successfully hired <@{user.id}>!'
                             break
                     else:
-                        message = f'<@{interaction.user.id}>, This user is not an applicant!'
-                        break
-                    break
-                else:
-                    message = f'<@{interaction.user.id}>, You are not the owner of this company!'
+                        message = f'<@{interaction.user.id}>, This user didn\'t apply to your company!'
                     break
         else:
-            message = f'<@{interaction.user.id}>, Can\'t find this company.'
+            message = f'<@{interaction.user.id}>, You don\'t have a company!'
 
-    elif action == "fire":   # Fire an employee
-        name = name.replace("@", "").replace("<", "").replace(">", "")
+    elif action == "fire":   # Fire an employee from the employee list of the company
         for v, i in enumerate(companies["ownerid"]):
-            if i == interaction.user.id:
+            if str(i) == str(interaction.user.id):
                 employees = str(companies["employees"][v]).split(";")
-                for w, j in enumerate(employees):
-                    if str(j) == name:
-                        employees.pop(w)
+                for v2, i2 in enumerate(employees):
+                    if str(i2) == str(user.id):
+                        employees.pop(v2)
                         companies["employees"][v] = ";".join(employees)
+                        companies = companies.replace("", "None")
                         companies.to_csv(
                             path+"data/companies.csv", index=False)
-                        message = f'<@{interaction.user.id}>, You have successfully fired <@{name}>!'
+                        message = f'<@{interaction.user.id}>, You have successfully fired <@{user.id}>!'
                         break
                 else:
-                    message = f'<@{interaction.user.id}>, This user is not an employee!'
+                    message = f'<@{interaction.user.id}>, This user isn\'t an employee of your company!'
                 break
-            else:
-                message = f'<@{interaction.user.id}>, You don\'t own a company!'
+        else:
+            message = f'<@{interaction.user.id}>, You don\'t have a company!'
 
     elif action == "apply":   # Apply for a job
         for v, i in enumerate(companies["name"]):
             if i == name:
-                # add the userid to the applicants list of the company
-                applicants = str(companies["applicants"][v]).split(";")
-                for w, j in enumerate(applicants):
-                    if str(j) == str(interaction.user.id):
-                        message = f'<@{interaction.user.id}>, You already applied for this job!'
+                # Check if user is already in a company
+                for v2, i2 in enumerate(companies["employees"]):
+                    if str(interaction.user.id) == str(i2):
+                        message = f'<@{interaction.user.id}>, You are already in a company!'
                         break
+
                 else:
-                    if companies["applicants"][v] == "None":
-                        companies["applicants"][v] = str(interaction.user.id)
+                    # Check if user is CEO of a company
+                    for v2, i2 in enumerate(companies["ownerid"]):
+                        if str(i2) == str(interaction.user.id):
+                            message = f'<@{interaction.user.id}>, You are the CEO of a company!'
+                            break
                     else:
-                        companies["applicants"][v] = str(companies["applicants"][v]) + \
-                            ";" + str(interaction.user.id)
-                    companies.to_csv(
-                        path+"data/companies.csv", index=False)
-                    message = f'<@{interaction.user.id}>, You have successfully applied for a job at **{name}**!\nPlease wait for the CEO to accept you, via the /company hire @{interaction.user.name} command.'
+                        # add the userid to the applicants list of the company
+                        applicants = str(companies["applicants"][v]).split(";")
+                        for w, j in enumerate(applicants):
+                            if str(j) == str(interaction.user.id):
+                                message = f'<@{interaction.user.id}>, You already applied for this job!'
+                                break
+                        else:
+                            if companies["applicants"][v] == "None":
+                                companies["applicants"][v] = str(
+                                    interaction.user.id)
+                            else:
+                                companies["applicants"][v] = str(companies["applicants"][v]) + \
+                                    ";" + str(interaction.user.id)
+                            companies.to_csv(
+                                path+"data/companies.csv", index=False)
+                            message = f'<@{interaction.user.id}>, You have successfully applied for a job at **{name}**!\nPlease wait for the CEO to accept you, via the /company hire @{interaction.user.name} command.'
+
+    elif action == "applicants":   # Show the applicants of a company
+        private = True
+        for v, i in enumerate(companies["ownerid"]):
+            if str(i) == str(interaction.user.id):
+                applicants = str(companies["applicants"][v]).split(";")
+                if applicants[0] == "None":
+                    applicants = "None"
+                else:
+                    # Mention all applicants
+                    for v2, i2 in enumerate(applicants):
+                        applicants[v2] = f'<@{i2}>'
+                    applicants = ", ".join(applicants)
+                message = f'**{companies["name"][v]}**\nApplicants: **{applicants}**'
+                break
+
+    elif action == "employees":   # Show the employees of a company
+        private = True
+        for v, i in enumerate(companies["ownerid"]):
+            if str(i) == str(interaction.user.id):
+                employees = str(companies["employees"][v]).split(";")
+                if employees[0] == "None":
+                    employees = "None"
+                else:
+                    # Mention all employees
+                    for v2, i2 in enumerate(employees):
+                        employees[v2] = f'<@{i2}>'
+                    employees = ", ".join(employees)
+                message = f'**{companies["name"][v]}**\nEmployees: **{employees}**'
+                break
+        else:
+            message = f'<@{interaction.user.id}>, You don\'t own a company!'
+
+    elif action == "leave":   # Leave a company
+        for v, i in enumerate(companies["employees"]):
+            if str(i) == str(interaction.user.id):
+                employees = str(companies["employees"][v]).split(";")
+                for v2, i2 in enumerate(employees):
+                    if str(i2) == str(interaction.user.id):
+                        employees.pop(v2)
+                        companies["employees"][v] = ";".join(employees)
+                        companies = companies.replace("", "None")
+                        companies.to_csv(
+                            path+"data/companies.csv", index=False)
+                        message = f'<@{interaction.user.id}>, You have successfully left **{companies["name"][v]}**!'
+                        break
+                break
+        else:
+            message = f'<@{interaction.user.id}>, You are not in a company!'
+
+    elif action == "delete":   # Delete a company
+        for v, i in enumerate(companies["ownerid"]):
+            if str(i) == str(interaction.user.id):
+                companies = companies.drop(v)
+                companies = companies.replace("", "None")
+                companies.to_csv(path+"data/companies.csv", index=False)
+                message = f'<@{interaction.user.id}>, You have successfully deleted your company!'
+                break
+        else:
+            message = f'<@{interaction.user.id}>, You don\'t own a company!'
 
     else:
         message = f'<@{interaction.user.id}>, Invalid action!'
 
     print(f"@{interaction.user.name}#{interaction.user.discriminator} tried to manage a company.\nAnswer: {message}\n")
-    await interaction.response.send_message(message)
+    await interaction.response.send_message(message, ephemeral=private)
 
 
 @tree.command(guild=discord.Object(id=guild_id), name="addresource", description="ADMIN_ONLY - Add a resource.")
